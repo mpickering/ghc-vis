@@ -42,7 +42,8 @@ import System.IO.Unsafe
 
 import GHC.Vis.Internal
 import GHC.Vis.Types
-import GHC.HeapView
+import GHC.Heap.Graph
+import Debug.Trace
 
 -- | Communication channel to the visualization
 visSignal :: MVar Signal
@@ -115,6 +116,7 @@ generalParseBoxes f = do
   --(hg, starts) <- multiBuildHeapGraph 100 $ map (\(_,x) -> ("",x)) bs
   (hg@(HeapGraph m), starts) <- getHeapGraph
   let bindings = boundMultipleTimes hg $ map snd starts
+  traceShowM ("parseBoxes", hg, starts, bindings)
   let g i = do
         r <- parseClosure i
         return $ simplify r
@@ -124,7 +126,7 @@ generalParseBoxes f = do
 -- second parameter adds external references, commonly @[heapGraphRoot]@.
 boundMultipleTimes :: HeapGraph a -> [HeapGraphIndex] -> [HeapGraphIndex]
 boundMultipleTimes (HeapGraph m) roots = map head $ filter (not.null) $ map tail $ group $ sort $
-     roots ++ concatMap (catMaybes . allPtrs . hgeClosure) (M.elems m)
+     roots ++ concatMap (catMaybes . allClosures . hgeClosure) (M.elems m)
 
 -- Pulls together multiple Unnamed objects to one
 simplify :: [VisObject] -> [VisObject]

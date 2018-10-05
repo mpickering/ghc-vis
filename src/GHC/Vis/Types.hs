@@ -17,22 +17,29 @@ module GHC.Vis.Types (
   NamedBox,
   PState(..),
   PrintState,
-  VisObject(..)
+  VisObject(..),
+
+  Render
+
   )
   where
 
-import GHC.HeapView
-
+import GHC.Heap.Graph
 import qualified Control.Monad.State as MS
+import Graphics.UI.Threepenny hiding (Point)
 
-import Graphics.UI.Gtk hiding (Box, Signal, Point)
-import Graphics.Rendering.Cairo hiding (x)
+type Render = UI
+
+--import Graphics.UI.Gtk hiding (Box, Signal, Point)
+--import Graphics.Rendering.Cairo hiding (x)
 
 -- | A simple Point
 type Point = (Double, Double)
 
 -- | A function to draw a cairo drawing to a file.
-type DrawFunction = forall a. FilePath -> Double -> Double -> (Surface -> IO a) -> IO a
+--type DrawFunction = forall a. FilePath -> Double -> Double -> (Surface -> IO a) -> IO a
+--
+type DrawFunction = ()
 
 -- | Signals that are sent to the GUI to signal changes
 data Signal = NewSignal Box String -- ^ Add a new Box to be visualized
@@ -42,13 +49,16 @@ data Signal = NewSignal Box String -- ^ Add a new Box to be visualized
             | RestoreSignal        -- ^ Reset all hidden boxes
             | SwitchSignal         -- ^ Switch to alternative view
             | HistorySignal (Int -> Int) -- ^ Change position in history
-            | ExportSignal DrawFunction String -- ^ Export the view to a file
+--            | ExportSignal DrawFunction String -- ^ Export the view to a file
+
+instance Show Signal where
+ show UpdateSignal = "Update"
 
 -- | All functions a view has to provide
 data View = View
-  { redraw        :: forall w. WidgetClass w => w -> Render ()
+  { redraw        :: Canvas -> Render ()
   , click         :: IO ()
-  , move          :: forall w. WidgetClass w => w -> IO ()
+  , move          :: Canvas -> IO ()
   , updateObjects :: [NamedBox] -> IO ()
   , exportView    :: DrawFunction -> String -> IO ()
   }
@@ -93,13 +103,4 @@ data VisObject = Unnamed String
                | Link String
                | Thunk String
                | Function String
-               deriving Eq
-
-instance Show VisObject where
-  show (Unnamed x)  = x
-  show (Named x ys) = x ++ "=(" ++ show ys ++ ")"
-  show (Link x)     = x
-  show (Thunk x)    = x
-  show (Function x) = x
-
-  showList = foldr ((.) . showString . show) (showString "")
+               deriving (Eq, Show)

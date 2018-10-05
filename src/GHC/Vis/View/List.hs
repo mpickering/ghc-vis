@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, RankNTypes #-}
+{-# LANGUAGE CPP, RankNTypes, NoMonomorphismRestriction #-}
 {- |
    Module      : GHC.Vis.View.List
    Copyright   : (c) Dennis Felsing
@@ -7,20 +7,13 @@
 
  -}
 module GHC.Vis.View.List (
-  export,
-
-#ifdef SDL_WINDOW
-  getState,
-  draw,
-  updateBoundingBoxes,
-#endif
-
   redraw,
   click,
   move,
   updateObjects
   )
   where
+{-
 import Graphics.UI.Gtk (PangoRectangle(..), layoutGetExtents, showLayout,
   PangoLayout, WidgetClass,
   widgetQueueDraw, ascent, layoutSetFontDescription,
@@ -29,6 +22,9 @@ import Graphics.UI.Gtk (PangoRectangle(..), layoutGetExtents, showLayout,
   contextGetMetrics, createLayout)
 import qualified Graphics.UI.Gtk as Gtk
 import Graphics.Rendering.Cairo hiding (width, height, x, y)
+-}
+
+import Graphics.UI.Threepenny hiding (map, width, hover, height, click)
 
 import Control.Concurrent
 import Control.Monad
@@ -40,7 +36,34 @@ import System.IO.Unsafe
 import GHC.Vis.Types hiding (State, View(..))
 import GHC.Vis.View.Common
 
-import GHC.HeapView (Box)
+import GHC.Heap.Graph (Box)
+
+import Data.Char (toUpper)
+import Data.List(intercalate)
+import Numeric (showHex)
+
+import Debug.Trace
+
+data PangoRectangle = PangoRectangle Double Double Double Double
+type PangoLayout = ()
+type FontMetrics = ()
+showLayout = undefined
+layoutGetExtents = undefined
+setSourceRGB :: Double -> Double -> Double -> Canvas -> UI ()
+setSourceRGB r g b u =
+  u # set' fillStyle (solidColor (RGB (round r) (round g) (round b)))
+
+setSourceRGBA r g b a =
+  traceShow (r, g, b, a) $
+  assignFillStyle (RGBA (round r) (round g) (round b) a)
+fillPreserve = undefined
+--showLayout = undefined
+--setLineCap = undefined
+ascent = undefined
+--getCurrentPoint = undefined Hard to implement
+data LineCapRound = LineCapRound
+
+
 
 type Rectangle = (Double, Double, Double, Double)
 
@@ -49,12 +72,13 @@ data State = State
   , bounds  :: [(String, Rectangle)]
   , hover   :: Maybe String
   , totalSize :: Rectangle
+  , curPos :: (Double, Double)
   }
 
 type RGB = (Double, Double, Double)
 
 state :: IORef State
-state = unsafePerformIO $ newIORef $ State [] [] Nothing (0, 0, 1, 1)
+state = unsafePerformIO $ newIORef $ State [] [] Nothing (0, 0, 1, 1) (0,0)
 
 layout' :: IORef (Maybe PangoLayout)
 layout' = unsafePerformIO $ newIORef Nothing
@@ -97,50 +121,30 @@ padding = 5
 
 -- | Draw visualization to screen, called on every update or when it's
 --   requested from outside the program.
-redraw :: WidgetClass w => w -> Render ()
+redraw :: Canvas -> UI ()
 redraw canvas = do
   s <- liftIO $ readIORef state
-  rw2 <- liftIO $ Gtk.widgetGetAllocatedWidth canvas
-  rh2 <- liftIO $ Gtk.widgetGetAllocatedHeight canvas
+  let rw2 = 1000
+      rh2 = 1000
 
-  (size, boundingBoxes) <- draw s rw2 rh2
+  canvas # clearCanvas
+  setSourceRGB 255 255 255 canvas
+  (size, boundingBoxes) <- draw canvas s rw2 rh2
   liftIO $ modifyIORef state (\s' -> s' {totalSize = size, bounds = boundingBoxes})
 
-#ifdef SDL_WINDOW
-getState :: IO State
-getState = readIORef state
 
-updateBoundingBoxes :: [(String, Rectangle)] -> IO ()
-updateBoundingBoxes boundingBoxes = do
-  modifyIORef state (\s' -> s' {bounds = boundingBoxes})
-#endif
-
--- | Export the visualization to an SVG file
-export :: DrawFunction -> String -> IO ()
-export drawFn file = do
-  s <- readIORef state
-
-  let (_, _, xSize, ySize) = totalSize s
-
-  drawFn file xSize ySize
-    (\surface -> renderWith surface (draw s 0 0))
-
-  return ()
-
-draw :: State -> Int -> Int -> Render (Rectangle, [(String, Rectangle)])
-draw s rw2 rh2 = do
+draw :: Canvas -> State -> Int -> Int -> UI (Rectangle, [(String, Rectangle)])
+draw canvas s rw2 rh2 = do
   let os = objects s
       objs  = map (\(_,_,x) -> x) os
       --boxes = map (\(x,_,_) -> x) os
       names = map ((++ ": ") . (\(_,x,_) -> x)) os
-
-  layout <- pangoEmptyLayout
-  liftIO $ writeIORef layout' $ Just layout
-
-  nameWidths <- mapM (width . Unnamed) names
-  pos <- mapM height objs
-  widths <- mapM (mapM width) objs
-
+  traceShowM names
+  --layout <- pangoEmptyLayout
+  --liftIO $ writeIORef layout' $ Just layout
+  nameWidths <- mapM (width canvas. Unnamed) names
+  pos <- mapM (height) objs
+  widths <- mapM (mapM (width canvas)) objs
   vS <- liftIO $ readIORef visState
 
   let rw = 0.98 * fromIntegral rw2
@@ -156,13 +160,15 @@ draw s rw2 rh2 = do
       (ox2,oy2) = position vS
       (ox,oy) = (ox2 - (zoomRatio vS - 1) * rw / 2, oy2 - (zoomRatio vS - 1) * rh / 2)
 
-  translate ox oy
+  translate ox oy canvas
+
+  save canvas
   unless (rw2 == 0 || rh2 == 0) $
-    scale sx sy
+    scale sx sy canvas
 
   let rpos = scanl (\a b -> a + b + 30) 30 pos
-  result <- mapM (drawEntry s maxNameWidth 0) (zip3 objs rpos names)
-
+  result <- mapM (drawEntry canvas s maxNameWidth 0) (zip3 objs rpos names)
+  restore canvas
   return ((0, 0, sw, sh), map (\(o, (x,y,w,h)) -> (o, (x*sx+ox,y*sy+oy,w*sx,h*sy))) $ concat result)
 
 -- | Handle a mouse click. If an object was clicked an 'UpdateSignal' is sent
@@ -183,7 +189,7 @@ click = do
 -- | Handle a mouse move. Causes an 'UpdateSignal' if the mouse is hovering a
 --   different object now, so the object gets highlighted and the screen
 --   updated.
-move :: WidgetClass w => w -> IO ()
+move :: Canvas -> IO ()
 move canvas = do
   vS <- readIORef visState
   oldS <- readIORef state
@@ -197,8 +203,6 @@ move canvas = do
           then Just o else Nothing
     in s' {hover = msum $ map check (bounds s')}
     )
-  s <- readIORef state
-  unless (oldHover == hover s) $ widgetQueueDraw canvas
 
 -- | Something might have changed on the heap, update the view.
 updateObjects :: [NamedBox] -> IO ()
@@ -210,197 +214,155 @@ updateObjects boxes = do
   let objs = zipWith (\(y,x) z -> (x,intercalate ", " y,z)) boxes os
   modifyIORef state (\s -> s {objects = objs, hover = Nothing})
 
-drawEntry :: State -> Double -> Double -> ([VisObject], Double, String) -> Render [(String, Rectangle)]
-drawEntry s nameWidth xPos (obj, pos, name) = do
-  save
-  translate xPos pos
-  moveTo 0 0
-  drawBox s $ Unnamed name
-  translate nameWidth 0
-  moveTo 0 0
-  boundingBoxes <- mapM (drawBox s) obj
-  restore
-  return $ map (\(o, (x,y,w,h)) -> (o, (x+nameWidth,y+pos,w,h))) $ concat boundingBoxes
 
-drawBox :: State -> VisObject -> Render [(String, Rectangle)]
-drawBox _ o@(Unnamed content) = do
-  (x,_) <- getCurrentPoint
-  wc <- width o
 
-  (layout, metrics) <- pangoLayout content
-  let fa = ascent metrics
+drawEntry :: Canvas -> State -> Double -> Double -> ([VisObject], Double, String) -> UI [(String, Rectangle)]
+drawEntry c s nw x t | traceShow (nw, x, t) False = undefined
+drawEntry c s nameWidth xPos (obj, pos, name) = do
+  traceShowM (obj, pos, name)
+  save c
+  translate xPos pos c
+  moveTo (0, 0) c
+  drawBox c s (0,[]) $ Unnamed name
+  translate nameWidth 0 c
+  moveTo (0, 0) c
+  (_, boundingBoxes) <- foldM (drawBox c s) (0, []) obj
+  restore c
+  return $ map (\(o, (x,y,w,h)) -> (o, (x+nameWidth,y+pos,w,h))) $ boundingBoxes
 
-  moveTo (x + padding/2) (-fa)
-  setSourceRGB 0 0 0
-  showLayout layout
-  moveTo (x + wc) 0
+drawBox :: Canvas -> State -> (Double, [(String, Rectangle)]) -> VisObject
+        -> UI (Double, [(String, Rectangle)])
+drawBox c _ (x, rs) o@(Unnamed content) = do
+  wc <- width c o
+  traceShowM wc
+  --(layout, metrics) <- pangoLayout content
+  let fa = 5 + padding / 2
 
-  return []
+  --moveTo ((x + padding/2), (-fa)) c
+  c # setSourceRGB 0 0 0
+  fillText content (x + padding / 2, -fa)  c
+  moveTo ((x + wc), 0) c
 
-drawBox s o@(Thunk target) =
-  drawFunctionLink s o target colorThunk colorThunkHighlighted
+  return (x + wc, rs)
 
-drawBox s o@(Function target) =
-  drawFunctionLink s o target colorFunction colorFunctionHighlighted
+drawBox c s acc o@(Thunk target) =
+  drawFunctionLink acc c s o target colorThunk colorThunkHighlighted
 
-drawBox s o@(Link target) =
-  drawFunctionLink s o target colorLink colorLinkHighlighted
+drawBox c s acc o@(Function target) =
+  drawFunctionLink acc c s o target colorFunction colorFunctionHighlighted
 
-drawBox s o@(Named name content) = do
-  (x,_) <- getCurrentPoint
+drawBox c s acc o@(Link target) =
+  drawFunctionLink acc c s o target colorLink colorLinkHighlighted
+
+drawBox c s (x, rs) o@(Named name content) = do
+  traceShowM (name, content)
 
   hc <- height content
-  wc <- width o
+  wc <- width c o
 
-  (layout, metrics) <- pangoLayout name
-  (_, PangoRectangle _ _ xa fh) <- liftIO $ layoutGetExtents layout
-  let fa = ascent metrics
+  let fa = 13 + padding
+      fh = 5
+      hn = 10
 
   let (ux, uy, uw, uh) =
         ( x
-        , -fa - padding
+        , -fa
         , wc
-        , fh + 10 + hc
+        , hc + hn + 10
         )
 
-  setLineCap LineCapRound
-  roundedRect ux uy uw uh
+  traceShowM (ux, uy, uw, uh)
 
-  setColor s name colorName colorNameHighlighted
+  --setLineCap LineCapRound
+  c # setColor s name colorName colorNameHighlighted
+  roundedRect c ux uy uw uh
 
-  fillAndSurround
+  fillAndSurround c
 
-  moveTo ux (hc + 5 - fa - padding)
-  lineTo (ux + uw) (hc + 5 - fa - padding)
-  stroke
+  let mid = uy + uh/2
 
-  save
-  moveTo (x + padding) 0
-  bb <- mapM (drawBox s) content
-  restore
+  moveTo (ux, mid) c
+  lineTo (ux + uw, mid) c
+  stroke c
 
-  moveTo (x + uw/2 - xa/2) (hc + 7.5 - padding - fa)
-  showLayout layout
-  moveTo (x + wc) 0
+  save c
+  (_, bb) <- foldM (drawBox c s) (x + padding , []) content
+  restore c
 
-  return $ concat bb ++ [(name, (ux, uy, uw, uh))]
+  --moveTo ((x + uw/2 - xa/2), (hc + 7.5 - padding - fa)) c
+  traceShowM (name, hc, mid)
+  xa <- measureText c name
+  fillText name (x + uw/2 - xa/2 + padding / 2, mid + hn) c
+  moveTo ((x + wc), 0) c
 
-pangoLayout :: String -> Render (PangoLayout, FontMetrics)
-pangoLayout text = do
-  --layout <- createLayout text
-  mbLayout <- liftIO $ readIORef layout'
-  layout'' <- case mbLayout of
-                Just layout''' -> return layout'''
-                Nothing -> do layout''' <- pangoEmptyLayout
-                              liftIO $ writeIORef layout' $ Just layout'''
-                              return layout'''
+  return $ (x + wc,  bb ++ [(name, (ux, uy, uw, uh))] ++ rs)
 
-  layout <- liftIO $ layoutCopy layout''
-  liftIO $ layoutSetText layout text
-  context <- liftIO $ layoutGetContext layout
 
-  --fo <- liftIO $ cairoContextGetFontOptions context
 
-  --fontOptionsSetAntialias fo AntialiasDefault
-  --fontOptionsSetHintStyle fo HintStyleNone
-  --fontOptionsSetHintMetrics fo HintMetricsOff
-  --liftIO $ cairoContextSetFontOptions context fo
+drawFunctionLink :: (Double, [(String, Rectangle)])
+                 -> Canvas -> State -> VisObject
+                 -> String -> RGB -> RGB -> UI (Double, [(String, Rectangle)])
+drawFunctionLink (x, rs) c s o target color1 color2 = do
+  let fa = 13 + padding
+      fh = 10
 
-  --liftIO $ layoutContextChanged layout
+  wc <- width c o
 
-  -- This does not work with "Times Roman", but it works with a font that is
-  -- installed on the system
-  --font <- liftIO fontDescriptionNew
-  --liftIO $ fontDescriptionSetFamily font "Nimbus Roman No9 L, Regular"
-  --liftIO $ fontDescriptionSetFamily font "Times Roman"
-  --liftIO $ fontDescriptionSetSize font fontSize'
-
-  -- Only fontDescriptionFromString works as expected, choosing a similar
-  -- alternative font when the selected one is not available
-  font <- liftIO $ fontDescriptionFromString fontName
-  liftIO $ fontDescriptionSetSize font fontSize
-  --liftIO $ layoutSetFontDescription layout (Just font)
-
-  language <- liftIO $ contextGetLanguage context
-  metrics <- liftIO $ contextGetMetrics context font language
-
-  return (layout, metrics)
-
-pangoEmptyLayout :: Render PangoLayout
-pangoEmptyLayout = do
-  layout <- createLayout ("" :: String)
-
-  liftIO $ do
-    font <- fontDescriptionFromString fontName
-    fontDescriptionSetSize font fontSize
-    layoutSetFontDescription layout (Just font)
-
-  return layout
-
-  --font <- fontDescriptionFromString fontName
-  --cairoCreateContext Nothing
-
-drawFunctionLink :: State -> VisObject -> String -> RGB -> RGB -> Render [(String, Rectangle)]
-drawFunctionLink s o target color1 color2 = do
-  (x,_) <- getCurrentPoint
-  (layout, metrics) <- pangoLayout target
-  (_, PangoRectangle _ _ _ fh) <- liftIO $ layoutGetExtents layout
-  let fa = ascent metrics
-
-  wc <- width o
+  traceShowM (o, wc)
 
   let (ux, uy, uw, uh) =
         (  x
-        ,  (-fa) -  padding
+        ,  (-fa)
         ,  wc
-        ,  fh   +  10
+        ,  fh   +  padding
         )
 
-  setLineCap LineCapRound
-  roundedRect ux uy uw uh
+  --setLineCap LineCapRound
+  c # setColor s target color1 color2
+  roundedRect c ux uy uw uh
 
-  setColor s target color1 color2
+  fillAndSurround c
 
-  fillAndSurround
+  c # setSourceRGB 0 0 0
+  traceShowM ("thunk", target)
+  fillText target (x + padding , - (5 + padding/2) ) c
+--  showLayout layout
+  moveTo ((x + wc), 0) c
 
-  moveTo (x + padding) (-fa)
-  showLayout layout
-  moveTo (x + wc) 0
+  return (x + wc, (target, (ux, uy, uw, uh)) : rs)
 
-  return [(target, (ux, uy, uw, uh))]
-
-setColor :: State -> String -> RGB -> RGB -> Render ()
+setColor ::State -> String -> RGB -> RGB -> Canvas -> UI ()
 setColor s name (r,g,b) (r',g',b') = case hover s of
-  Just t -> if t == name then setSourceRGB r' g' b'
-                         else setSourceRGB r  g  b
-  _ -> setSourceRGB r g b
+  Just t -> if t == name then setSourceRGB (r' * 255) (g' * 255) (b' * 255)
+                         else setSourceRGB (r * 255)  (g * 255)  (b * 255)
+  _ -> setSourceRGB (r * 255) (g * 255) (b * 255)
 
-fillAndSurround :: Render ()
-fillAndSurround = do
-  fillPreserve
-  setSourceRGB 0 0 0
-  stroke
+fillAndSurround :: Canvas -> UI ()
+fillAndSurround c = do
+  fill c
+  c # setSourceRGB 0 0 0
+  stroke c
 
-roundedRect :: Double -> Double -> Double -> Double -> Render ()
-roundedRect x y w h = do
-  moveTo       x            (y + pad)
-  lineTo       x            (y + h - pad)
-  arcNegative (x + pad)     (y + h - pad) pad pi      (pi/2)
-  lineTo      (x + w - pad) (y + h)
-  arcNegative (x + w - pad) (y + h - pad) pad (pi/2)  0
-  lineTo      (x + w)       (y + pad)
-  arcNegative (x + w - pad) (y + pad)     pad 0       (-pi/2)
-  lineTo      (x + pad)      y
-  arcNegative (x + pad)     (y + pad)     pad (-pi/2) (-pi)
-  closePath
+roundedRect :: Canvas -> Double -> Double -> Double -> Double -> UI ()
+roundedRect c x y w h = do
+  beginPath c
+  moveTo       (x,            (y + pad)) c
+  lineTo       (x,            (y + h - pad)) c
+  arcNegative  ((x + pad),     (y + h - pad)) pad pi      (pi/2) c
+  lineTo      ((x + w - pad), (y + h)) c
+  arcNegative ((x + w - pad), (y + h - pad)) pad (pi/2)  0 c
+  lineTo      ((x + w),       (y + pad)) c
+  arcNegative ((x + w - pad), (y + pad))      pad 0       (-pi/2) c
+  lineTo      ((x + pad),      y) c
+  arcNegative ((x + pad),     (y + pad))     pad (-pi/2) (-pi) c
+  closePath c
 
   --where pad = 1/10 * min w h
   where pad = 5
 
-height :: [VisObject] -> Render Double
+height :: [VisObject] -> UI Double
 height xs = do
-  (layout, _) <- pangoLayout ""
-  (_, PangoRectangle _ _ _ ya) <- liftIO $ layoutGetExtents layout
+  let ya = 10 --Fixed for now
   let go (Named _ ys) = (ya + 15) + maxGo ys
       go (Unnamed _)  = ya
       go (Link _)     = ya + 2 * padding
@@ -411,22 +373,53 @@ height xs = do
 
   return $ maxGo xs
 
-width :: VisObject -> Render Double
-width (Named x ys) = do
-  nameWidth <- simpleWidth x $ 2 * padding
-  w2s <- mapM width ys
-  return $ max nameWidth $ sum w2s + 2 * padding
+width :: Canvas -> VisObject -> UI Double
+width c(Named x ys) = do
+  nameWidth <- simpleWidth c x 0
+  w2s <- mapM (width c) ys
+  return $ max nameWidth (sum w2s) + (2 * padding)
+width c(Unnamed x) = simpleWidth c x padding
+width c ( Link x) = simpleWidth c x $ 2 * padding
+width c (Thunk x) = simpleWidth c x $ 2 * padding
+width c (Function x) = simpleWidth c x $ 2 * padding
 
-width (Unnamed x) = simpleWidth x padding
+simpleWidth :: Canvas -> String -> Double -> UI Double
+simpleWidth canvas x pad = do
+  (pad +) <$> measureText canvas x
 
-width (Link x) = simpleWidth x $ 2 * padding
+measureText :: Canvas -> String -> UI Double
+measureText c s = callFunction $ ffi "%1.getContext('2d').measureText(%2).width" c s
 
-width (Thunk x) = simpleWidth x $ 2 * padding
+save :: Canvas -> UI ()
+save c = runFunction $ ffi "%1.getContext('2d').save();" c
 
-width (Function x) = simpleWidth x $ 2 * padding
+restore :: Canvas -> UI ()
+restore c = runFunction $ ffi "%1.getContext('2d').restore();" c
 
-simpleWidth :: String -> Double -> Render Double
-simpleWidth x pad = do
-  (layout, _) <- pangoLayout x
-  (_, PangoRectangle _ _ xa _) <- liftIO $ layoutGetExtents layout
-  return $ xa + pad
+translate :: Double -> Double -> Canvas -> UI ()
+translate x y c = runFunction $ ffi "%1.getContext('2d').translate(%2, %3);" c x y
+
+scale :: Double -> Double -> Canvas -> UI ()
+scale x y c = do
+  runFunction $ ffi "%1.getContext('2d').scale(%2, %3);" c x y
+
+arcNegative p d1 d2 d3 = arc' p d1 d2 d3 True
+
+assignFillStyle color canvas
+  = runFunction $ ffi "%1.getContext('2d').fillStyle=%2" canvas (rgbString color)
+
+rgbString :: Color -> String
+rgbString color =
+  case color of
+    (RGB r g b) -> "#" ++ sh r ++ sh g ++ sh b
+    (RGBA r g b a) -> "rgba(" ++ show r ++ "," ++ show g ++ "," ++ show b ++ "," ++ show a ++ ")"
+    where sh i  = pad . map toUpper $ showHex i ""
+          pad s
+            | length s  == 0 = "00"
+            | length s  == 1 = '0' : s
+            | length s  == 2 = s
+            | otherwise      =  take 2 s
+
+uc :: (Double, Double) -> UI ()
+uc (x, y) =
+  liftIO $ modifyIORef state (\s' -> s' {curPos = (fst (curPos s') + x, snd (curPos s') + y) })

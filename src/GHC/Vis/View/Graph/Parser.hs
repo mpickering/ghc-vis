@@ -26,13 +26,13 @@ import Data.GraphViz hiding (toNode, Ellipse, Polygon, parse)
 import Data.GraphViz.Attributes.Complete
 import Data.GraphViz.Commands.IO
 
-import GHC.HeapView hiding (name)
+import GHC.Heap.Graph hiding (name)
 import GHC.Vis.Internal (showClosureFields)
 import GHC.Vis.Types
 import GHC.Vis.View.Common
 
-import Graphics.XDot.Types hiding (name, h, Style, Color)
-import Graphics.XDot.Parser
+--import Graphics.XDot.Types hiding (name, h, Style, Color)
+--import Graphics.XDot.Parser
 
 fontName :: B.Text
 --fontName = "Times Roman"
@@ -80,7 +80,7 @@ convertGraph (HeapGraph hgm) = appEndo (removeGarbage <> addNames <> addEdges <>
         -- = (map show byteCode, 0)
         = (["BCO"], length (concatMap F.toList byteCode))
                | otherwise
-        = (showClosureFields (hgeClosure hge), length $ allPtrs (hgeClosure hge))
+        = (showClosureFields (hgeClosure hge), length $ allClosures (hgeClosure hge))
 
     -- Adds edges between the closures, treating BCOs specially
     addEdges = mconcat [
@@ -92,7 +92,7 @@ convertGraph (HeapGraph hgm) = appEndo (removeGarbage <> addNames <> addEdges <>
         where myPtrs | Just byteCode <- disassembleBCO deref (hgeClosure hge)
                      = concatMap F.toList byteCode
                      | otherwise
-                     = allPtrs (hgeClosure hge)
+                     = allClosures (hgeClosure hge)
 
     -- Adds the nodes and edges for the names
     addNameList = zip [-1,-2..] $ reverse -- Reverse to display from left to right
@@ -112,6 +112,7 @@ removeOld keys (Just x)
   | otherwise     = Nothing
 removeOld _ x = x
 
+{-
 -- | Take the objects to be visualized and run them through @dot@ and extract
 --   the drawing operations that have to be exectued to show the graph of the
 --   heap map.
@@ -126,6 +127,9 @@ xDotParse hidden = do
   xDot <- graphvizWithHandle graphvizCommand (defaultVis $ convertGraph hg) (XDot Nothing) hGetDot
 
   return (getOperations xDot, getBoxes (HeapGraph hg''), getDimensions xDot, getSize xDot)
+  -}
+
+xDotParse = undefined
 
 getBoxes :: HeapGraph a -> [Box]
 getBoxes (HeapGraph hg) = map (\(HeapGraphEntry b _ _ _) -> b) $ M.elems hg
