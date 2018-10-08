@@ -70,7 +70,7 @@ type Rectangle = (Double, Double, Double, Double)
 data State = State
   { objects :: [(Box, String, [VisObject])]
   , bounds  :: [(String, Rectangle)]
-  , hover   :: Maybe String
+  , hover   :: !(Maybe String)
   , totalSize :: Rectangle
   , curPos :: (Double, Double)
   }
@@ -176,6 +176,7 @@ draw canvas s rw2 rh2 = do
 click :: IO ()
 click = do
   s <- readIORef state
+  traceShowM ("click", hover s)
 
   hm <- inHistoryMode
   when (not hm) $ case hover s of
@@ -191,17 +192,19 @@ click = do
 --   updated.
 move :: Canvas -> IO ()
 move canvas = do
+  traceM "move"
   vS <- readIORef visState
   oldS <- readIORef state
   let oldHover = hover oldS
-
+  traceShowM ("hover", oldHover)
   modifyIORef state $ \s' -> (
     let (mx, my) = mousePos vS
-        check (o, (x,y,w,h)) =
+        check (o, o2@(x,y,w,h)) =
           if x <= mx && mx <= x + w &&
              y <= my && my <= y + h
           then Just o else Nothing
-    in s' {hover = msum $ map check (bounds s')}
+    in
+      s' {hover = msum $ map (check . traceShowId) (bounds s')}
     )
 
 -- | Something might have changed on the heap, update the view.

@@ -66,7 +66,7 @@ data View = View
 -- | Visualization views
 data ViewType = ListView
               | GraphView
-              deriving (Enum)
+              deriving (Enum, Show)
 
 -- | The global state used for the visualizations.
 data State = State
@@ -77,7 +77,7 @@ data State = State
   , dragging   :: Bool     -- ^ Whether the mouse is dragging
   , wasDragged :: Bool     -- ^ Whether the mouse was actually dragged
   , heapDepth  :: Int      -- ^ Maximum heap depth to follow
-  }
+  } deriving Show
 
 -- | Identifier of a closure
 type Identifier = [String]

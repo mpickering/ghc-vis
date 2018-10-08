@@ -215,21 +215,21 @@ setup window = do
 --  widgetModifyBg canvas StateNormal backgroundColor
   dummy <- UI.canvas
 
-  getBody window #+
+  body <- getBody window #+
     [ column [element canvas, element dummy] ]
 
   return ()
 
-  setupGUI window canvas dummy
+  setupGUI window body canvas dummy
 
-setupGUI :: Window -> _ -> _ -> UI ()
-setupGUI window canvas legendCanvas = do
+setupGUI :: Window -> _ -> _ -> _ -> UI ()
+setupGUI window body canvas legendCanvas = do
   --widgetAddEvents canvas [PointerMotionMask]
   on UI.mousemove canvas $ \(fromIntegral -> x, fromIntegral -> y) -> do
     liftIO $ do
       state <- readIORef visState
+      traceShowM state
       modifyIORef visState (\s -> s {mousePos = (x, y)})
-
       if dragging state
       then do
         let (oldX, oldY) = mousePos state
@@ -237,15 +237,16 @@ setupGUI window canvas legendCanvas = do
             (oldPosX, oldPosY) = position state
         modifyIORef visState (\s -> s {position = (oldPosX + deltaX, oldPosY + deltaY)})
       else
+        traceShow ("runcorrect", ())
         runCorrect move >>= \f -> f canvas
 
       return True
+  on UI.keydown body $ \button -> do
+    traceShowM ("keydown", button)
   on UI.click canvas $ \button -> do
-    {-
-    lift $ do
-      when (button == LeftButton && eClick == SingleClick) $
-        join $ runCorrect click
-
+    traceShowM ("click", button)
+    liftIO (join (runCorrect click))
+  {-
       when (button == RightButton && eClick == SingleClick) $
         modifyIORef visState (\s -> s {dragging = True})
 
@@ -263,8 +264,11 @@ setupGUI window canvas legendCanvas = do
         modifyIORef visState (\s -> s {dragging = False})
 
       return True
+-}
 
-  on canvas scrollEvent $ do
+    {-
+  on wheel body $ \e -> do
+    traceShowM ("scroll", e)
     direction <- eventScrollDirection
     lift $ do
       state <- readIORef visState
@@ -282,7 +286,8 @@ setupGUI window canvas legendCanvas = do
 
       widgetQueueDraw canvas
       return True
-
+      -}
+{-
   on window keyPressEvent $ do
     eKeyName <- eventKeyName
     lift $ do
@@ -471,3 +476,6 @@ zoomImage _canvas s newZoomRatio _mousePos@(_x', _y') = do
       newPos = (oldPosX * newZoom, oldPosY * newZoom)
 
   return newPos
+
+wheel :: Element -> Event _
+wheel =  domEvent "wheel"
