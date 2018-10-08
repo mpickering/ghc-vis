@@ -146,6 +146,7 @@ draw canvas s rw2 rh2 = do
   pos <- mapM (height) objs
   widths <- mapM (mapM (width canvas)) objs
   vS <- liftIO $ readIORef visState
+  traceShowM ("zoomRatio", zoomRatio vS)
 
   let rw = 0.98 * fromIntegral rw2
       rh = fromIntegral rh2
