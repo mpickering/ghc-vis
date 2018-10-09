@@ -60,6 +60,12 @@ Library
   --    Build-depends: SDL == 0.6.*
   --    Cpp-options: -DSDL_WINDOW
 
+Executable as-a-library
+  main-is: Main.hs
+  hs-source-dirs: test
+  build-depends: ghc-vis, base
+--  other-modules:
+
 source-repository head
     type:     git
     location: https://github.com/def-/ghc-vis.git
