@@ -54,7 +54,6 @@ setSourceRGB r g b u =
   u # set' fillStyle (solidColor (RGB (round r) (round g) (round b)))
 
 setSourceRGBA r g b a =
-  traceShow (r, g, b, a) $
   assignFillStyle (RGBA (round r) (round g) (round b) a)
 fillPreserve = undefined
 --showLayout = undefined
@@ -139,14 +138,12 @@ draw canvas s rw2 rh2 = do
       objs  = map (\(_,_,x) -> x) os
       --boxes = map (\(x,_,_) -> x) os
       names = map ((++ ": ") . (\(_,x,_) -> x)) os
-  traceShowM names
   --layout <- pangoEmptyLayout
   --liftIO $ writeIORef layout' $ Just layout
   nameWidths <- mapM (width canvas. Unnamed) names
   pos <- mapM (height) objs
   widths <- mapM (mapM (width canvas)) objs
   vS <- liftIO $ readIORef visState
-  traceShowM ("zoomRatio", zoomRatio vS)
 
   let rw = 0.98 * fromIntegral rw2
       rh = fromIntegral rh2
@@ -177,7 +174,6 @@ draw canvas s rw2 rh2 = do
 click :: IO ()
 click = do
   s <- readIORef state
-  traceShowM ("click", hover s)
 
   hm <- inHistoryMode
   when (not hm) $ case hover s of
@@ -193,11 +189,9 @@ click = do
 --   updated.
 move :: Canvas -> IO ()
 move canvas = do
-  traceM "move"
   vS <- readIORef visState
   oldS <- readIORef state
   let oldHover = hover oldS
-  traceShowM ("hover", oldHover)
   modifyIORef state $ \s' -> (
     let (mx, my) = mousePos vS
         check (o, o2@(x,y,w,h)) =
@@ -205,7 +199,7 @@ move canvas = do
              y <= my && my <= y + h
           then Just o else Nothing
     in
-      s' {hover = msum $ map (check . traceShowId) (bounds s')}
+      s' {hover = msum $ map (check) (bounds s')}
     )
 
 -- | Something might have changed on the heap, update the view.
@@ -221,9 +215,8 @@ updateObjects boxes = do
 
 
 drawEntry :: Canvas -> State -> Double -> Double -> ([VisObject], Double, String) -> UI [(String, Rectangle)]
-drawEntry c s nw x t | traceShow (nw, x, t) False = undefined
+--drawEntry c s nw x t | traceShow (nw, x, t) False = undefined
 drawEntry c s nameWidth xPos (obj, pos, name) = do
-  traceShowM (obj, pos, name)
   save c
   translate xPos pos c
   moveTo (0, 0) c
@@ -238,7 +231,7 @@ drawBox :: Canvas -> State -> (Double, [(String, Rectangle)]) -> VisObject
         -> UI (Double, [(String, Rectangle)])
 drawBox c _ (x, rs) o@(Unnamed content) = do
   wc <- width c o
-  traceShowM wc
+
   --(layout, metrics) <- pangoLayout content
   let fa = 5 + padding / 2
 
@@ -259,7 +252,6 @@ drawBox c s acc o@(Link target) =
   drawFunctionLink acc c s o target colorLink colorLinkHighlighted
 
 drawBox c s (x, rs) o@(Named name content) = do
-  traceShowM (name, content)
 
   hc <- height content
   wc <- width c o
@@ -275,7 +267,6 @@ drawBox c s (x, rs) o@(Named name content) = do
         , hc + hn + 10
         )
 
-  traceShowM (ux, uy, uw, uh)
 
   --setLineCap LineCapRound
   c # setColor s name colorName colorNameHighlighted
@@ -294,7 +285,6 @@ drawBox c s (x, rs) o@(Named name content) = do
   restore c
 
   --moveTo ((x + uw/2 - xa/2), (hc + 7.5 - padding - fa)) c
-  traceShowM (name, hc, mid)
   xa <- measureText c name
   fillText name (x + uw/2 - xa/2 + padding / 2, mid + hn) c
   moveTo ((x + wc), 0) c
@@ -312,7 +302,6 @@ drawFunctionLink (x, rs) c s o target color1 color2 = do
 
   wc <- width c o
 
-  traceShowM (o, wc)
 
   let (ux, uy, uw, uh) =
         (  x
@@ -328,7 +317,6 @@ drawFunctionLink (x, rs) c s o target color1 color2 = do
   fillAndSurround c
 
   c # setSourceRGB 0 0 0
-  traceShowM ("thunk", target)
   fillText target (x + padding , - (5 + padding/2) ) c
 --  showLayout layout
   moveTo ((x + wc), 0) c

@@ -116,7 +116,7 @@ defaultSize :: (Int, Int)
 defaultSize = (1600, 1600)
 
 zoomIncrement :: Double
-zoomIncrement = 1.25
+zoomIncrement = 2
 
 positionIncrement :: Double
 positionIncrement = 50
@@ -228,7 +228,6 @@ setupGUI window body canvas legendCanvas = do
   on UI.mousemove canvas $ \(fromIntegral -> x, fromIntegral -> y) -> do
     liftIO $ do
       state <- readIORef visState
-      traceShowM state
       modifyIORef visState (\s -> s {mousePos = (x, y)})
       if dragging state
       then do
@@ -255,8 +254,9 @@ setupGUI window body canvas legendCanvas = do
           (oldX, oldY) = position state
           newPos = (oldX/zoomIncrement, oldY/zoomIncrement)
       modifyIORef visState (\s -> s {zoomRatio = newZoomRatio, position = newPos})
+
+    runUI window (runCorrect redraw >>= \f -> f canvas)
   on UI.click canvas $ \button -> do
-    traceShowM ("click", button)
     liftIO (join (runCorrect click))
   {-
       when (button == RightButton && eClick == SingleClick) $
@@ -464,7 +464,6 @@ react window canvas legendCanvas = do
 
         s <- readIORef visState
         x <- multiBuildHeapGraph (heapDepth s) boxes
-        traceShowM ("heap", x)
         modifyMVar_ visHeapHistory (\(i,xs) -> return (i,x:xs))
 
       runCorrect updateObjects >>= \f -> f boxes
