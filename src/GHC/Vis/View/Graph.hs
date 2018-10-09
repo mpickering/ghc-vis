@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, RankNTypes, ScopedTypeVariables #-}
+{-# LANGUAGE CPP, RankNTypes, ScopedTypeVariables, PartialTypeSignatures #-}
 {- |
    Module      : GHC.Vis.View.Graph
    Copyright   : (c) Dennis Felsing
@@ -19,9 +19,9 @@ module GHC.Vis.View.Graph (
 import Prelude hiding (catch)
 #endif
 
-import Graphics.UI.Gtk hiding (Box, Signal, Rectangle, draw)
-import qualified Graphics.UI.Gtk as Gtk
-import Graphics.Rendering.Cairo hiding (x, y)
+import qualified Graphics.UI.Threepenny as UI
+import Graphics.UI.Threepenny.Core
+import Graphics.UI.Threepenny.Canvas.Utils
 
 import Control.Concurrent
 import Control.Monad
@@ -35,12 +35,11 @@ import GHC.Vis.View.Graph.Parser
 import GHC.Vis.Types hiding (State, View(..))
 import GHC.Vis.View.Common
 
-import GHC.HeapView hiding (size)
+import GHC.Heap.Graph
 
 import Graphics.XDot.Viewer
 import Graphics.XDot.Types hiding (size, w, h)
 
-import Graphics.Rendering.Cairo.SVG
 import Paths_ghc_vis as My
 
 hoverIconWidth :: Double
@@ -69,6 +68,10 @@ data State = State
 state :: IORef State
 state = unsafePerformIO $ newIORef $ State [] [] (0, 0, 1, 1) [] [] None Nothing
 
+type SVG = ()
+svgNewFromFile :: _ -> IO ()
+svgNewFromFile = undefined
+
 iconEvaluateSVG :: SVG
 iconEvaluateSVG = unsafePerformIO $ My.getDataFileName "data/icon_evaluate.svg" >>= svgNewFromFile
 iconCollapseSVG :: SVG
@@ -80,30 +83,25 @@ hoverCollapseSVG = unsafePerformIO $ My.getDataFileName "data/hover_collapse.svg
 
 -- | Draw visualization to screen, called on every update or when it's
 --   requested from outside the program.
-redraw :: WidgetClass w => w -> Render ()
+redraw :: UI.Canvas -> Render ()
 redraw canvas = do
   s <- liftIO $ readIORef state
-  rw2 <- liftIO $ Gtk.widgetGetAllocatedWidth canvas
-  rh2 <- liftIO $ Gtk.widgetGetAllocatedHeight canvas
+  --rw2 <- liftIO $ Gtk.widgetGetAllocatedWidth canvas
+  --rh2 <- liftIO $ Gtk.widgetGetAllocatedHeight canvas
+  let (rw2, rh2) = (1000,1000)
 
-  (bbs, hibbs) <- draw s rw2 rh2
-
+  save canvas
+  canvas # UI.clearCanvas
+  (bbs, hibbs) <- draw canvas s rw2 rh2
+  restore canvas
   liftIO $ modifyIORef state (\s' -> s' {bounds = bbs, hoverIconBounds = hibbs})
 
 -- | Export the visualization to an SVG file
 export :: DrawFunction -> String -> IO ()
-export drawFn file = do
-  s <- readIORef state
+export drawFn file = undefined
 
-  let (_, _, xSize, ySize) = totalSize s
-
-  drawFn file xSize ySize
-    (\surface -> renderWith surface (draw s (round xSize) (round ySize)))
-
-  return ()
-
-draw :: State -> Int -> Int -> Render ([(Object Int, Rectangle)], [(Object Int, [(Icon, Rectangle)])])
-draw s rw2 rh2 = do
+draw :: UI.Canvas -> State -> Int -> Int -> Render ([(Object Int, Rectangle)], [(Object Int, [(Icon, Rectangle)])])
+draw c s rw2 rh2 = do
   if null $ boxes s then return ([], [])
   else do
     vS <- liftIO $ readIORef visState
@@ -121,17 +119,17 @@ draw s rw2 rh2 = do
         (ox2,oy2) = position vS
         (ox,oy) = (ox1 + ox2, oy1 + oy2)
 
-    translate ox oy
-    scale sx sy
+    translate ox oy c
+    scale sx sy c
 
-    result <- drawAll (hover s) size ops
+    result <- drawAll c (hover s) size ops
 
     case hover s of
       Node n -> do
         let Just (x,y,w,_h) = lookup (Node n) result
 
-        translate (x + w + hoverIconSpace) y
-        drawHoverMenu $ iconHover s
+        translate (x + w + hoverIconSpace) y c
+        drawHoverMenu c $ iconHover s
       _      -> return True
 
     let trafo (o, (x,y,w,h)) = (o,
@@ -148,13 +146,15 @@ draw s rw2 rh2 = do
 
     return (map trafo result, map toHoverIconBounds result)
 
-drawHoverMenu :: Maybe (t, Icon) -> Render Bool
-drawHoverMenu x = do
+svgRender = undefined
+
+drawHoverMenu :: UI.Canvas -> Maybe (t, Icon) -> Render Bool
+drawHoverMenu c x = do
   svgRender $ case x of
     Just (_, EvaluateIcon) -> hoverEvaluateSVG
     _                      -> iconEvaluateSVG
 
-  translate 0 hoverIconHeight
+  translate 0 hoverIconHeight  c
 
   svgRender $ case x of
     Just (_, CollapseIcon) -> hoverCollapseSVG
@@ -220,7 +220,7 @@ hide b = modifyMVar_ visHidden (\hs -> return $ b : hs)
 -- | Handle a mouse move. Causes an 'UpdateSignal' if the mouse is hovering a
 --   different object now, so the object gets highlighted and the screen
 --   updated.
-move :: WidgetClass w => w -> IO ()
+move :: UI.Canvas -> IO ()
 move canvas = do
   vs <- readIORef visState
   oldS <- readIORef state
@@ -254,12 +254,12 @@ move canvas = do
     Just i -> do
       let ih = Just (oldHover, i)
       modifyIORef state $ \s' -> s' {iconHover = ih}
-      unless (iconHover oldS == ih) $ widgetQueueDraw canvas
+      --unless (iconHover oldS == ih) $ widgetQueueDraw canvas
 
     Nothing -> do
       let h = validOne $ map check $ bounds oldS
       modifyIORef state $ \s' -> s' {hover = h, iconHover = Nothing}
-      unless (oldHover == h && iconHover oldS == Nothing) $ widgetQueueDraw canvas
+      --unless (oldHover == h && iconHover oldS == Nothing) $ widgetQueueDraw canvas
 
 -- | Something might have changed on the heap, update the view.
 updateObjects :: [NamedBox] -> IO ()

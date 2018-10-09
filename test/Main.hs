@@ -15,3 +15,5 @@ main = do
   view c "c"
   view d "d"
   getChar
+  switch
+  getChar

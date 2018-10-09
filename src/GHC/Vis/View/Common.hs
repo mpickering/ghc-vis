@@ -58,7 +58,7 @@ defaultDepth = 100
 
 defaultView :: ViewType
 #ifdef GRAPH_VIEW
-defaultView = GraphView
+defaultView = ListView
 #else
 defaultView = ListView
 #endif

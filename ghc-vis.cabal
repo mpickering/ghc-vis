@@ -28,6 +28,10 @@ flag full
   Default: False
   Description: "Full ghc-vis window: decorations, buttons, legend"
 
+flag graph
+  Default: True
+  Description: "Enable the graph view"
+
 --flag sdl
 --  Default: False
 --  Description: "SDL window"
@@ -45,14 +49,15 @@ Library
                  containers >= 0.4,
                  ghc-heap-graph,
                  threepenny-gui,
+                 threepenny-utils,
                  keycode
   Hs-source-dirs: src/
   Ghc-options: -Wall -fno-warn-unused-do-bind
 
-  --if flag(graph)
-  --    Other-modules: GHC.Vis.View.Graph.Parser GHC.Vis.View.Graph
-  --    Build-depends: graphviz >= 2999.17
-   ---   Cpp-options: -DGRAPH_VIEW
+  if flag(graph)
+      Other-modules: GHC.Vis.View.Graph.Parser GHC.Vis.View.Graph
+      Build-depends: graphviz >= 2999.17, xdot
+      Cpp-options: -DGRAPH_VIEW
 
   if flag(full)
       Cpp-options: -DFULL_WINDOW

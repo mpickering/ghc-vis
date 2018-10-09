@@ -85,6 +85,7 @@ import qualified GHC.Vis.View.List as List
 
 import Web.KeyCode
 
+
 #ifdef GRAPH_VIEW
 import Data.GraphViz.Commands
 import qualified GHC.Vis.View.Graph as Graph
@@ -502,7 +503,16 @@ react window canvas legendCanvas = do
       --postGUISync $ widgetQueueDraw legendCanvas
       react window canvas legendCanvas
 
+#ifdef GRAPH_VIEW
+  where doSwitch = isGraphvizInstalled >>= \gvi -> if gvi
+          then modifyIORef visState (\s -> s {T.view = succN (T.view s), zoomRatio = 1, position = (0, 0)})
+          else putStrLn "Cannot switch view: The Graphviz binary (dot) is not installed"
+
+        succN GraphView = ListView
+        succN ListView = GraphView
+#else
   where doSwitch = putStrLn "Cannot switch view: Graph view disabled at build"
+#endif
 
 runCorrect :: MonadIO m => (View -> f) -> m f
 runCorrect f = do

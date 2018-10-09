@@ -25,6 +25,7 @@ import Graphics.Rendering.Cairo hiding (width, height, x, y)
 -}
 
 import Graphics.UI.Threepenny hiding (map, width, hover, height, click)
+import Graphics.UI.Threepenny.Canvas.Utils
 
 import Control.Concurrent
 import Control.Monad
@@ -49,14 +50,8 @@ setSourceRGB :: Double -> Double -> Double -> Canvas -> UI ()
 setSourceRGB r g b u =
   u # set' fillStyle (solidColor (RGB (round r) (round g) (round b)))
 
-setSourceRGBA r g b a =
-  assignFillStyle (RGBA (round r) (round g) (round b) a)
-fillPreserve = undefined
---showLayout = undefined
---setLineCap = undefined
-ascent = undefined
---getCurrentPoint = undefined Hard to implement
-data LineCapRound = LineCapRound
+setSourceRGBA r g b a c =
+  c # set' fillStyle (solidColor (RGBA (round r) (round g) (round b) a))
 
 
 
@@ -373,47 +368,3 @@ simpleWidth :: Canvas -> String -> Double -> UI Double
 simpleWidth canvas x pad = do
   (pad +) <$> measureText canvas x
 
-measureText :: Canvas -> String -> UI Double
-measureText c s =  do
-  -- 6 is the width of the monospaced font at 10px
-  return (fromIntegral (length s * 6))
-
--- You have to be careful using this function as it causes synchronisation
--- and blocking.
-charWidth :: Canvas -> String -> UI Double
-charWidth c s =
-  callFunction $ ffi "%1.getContext('2d').measureText(%2).width" c s
-
-save :: Canvas -> UI ()
-save c = runFunction $ ffi "%1.getContext('2d').save();" c
-
-restore :: Canvas -> UI ()
-restore c = runFunction $ ffi "%1.getContext('2d').restore();" c
-
-translate :: Double -> Double -> Canvas -> UI ()
-translate x y c = runFunction $ ffi "%1.getContext('2d').translate(%2, %3);" c x y
-
-scale :: Double -> Double -> Canvas -> UI ()
-scale x y c = do
-  runFunction $ ffi "%1.getContext('2d').scale(%2, %3);" c x y
-
-arcNegative p d1 d2 d3 = arc' p d1 d2 d3 True
-
-assignFillStyle color canvas
-  = runFunction $ ffi "%1.getContext('2d').fillStyle=%2" canvas (rgbString color)
-
-rgbString :: Color -> String
-rgbString color =
-  case color of
-    (RGB r g b) -> "#" ++ sh r ++ sh g ++ sh b
-    (RGBA r g b a) -> "rgba(" ++ show r ++ "," ++ show g ++ "," ++ show b ++ "," ++ show a ++ ")"
-    where sh i  = pad . map toUpper $ showHex i ""
-          pad s
-            | length s  == 0 = "00"
-            | length s  == 1 = '0' : s
-            | length s  == 2 = s
-            | otherwise      =  take 2 s
-
-uc :: (Double, Double) -> UI ()
-uc (x, y) =
-  liftIO $ modifyIORef state (\s' -> s' {curPos = (fst (curPos s') + x, snd (curPos s') + y) })

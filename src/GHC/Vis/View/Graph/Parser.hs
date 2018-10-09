@@ -31,8 +31,8 @@ import GHC.Vis.Internal (showClosureFields)
 import GHC.Vis.Types
 import GHC.Vis.View.Common
 
---import Graphics.XDot.Types hiding (name, h, Style, Color)
---import Graphics.XDot.Parser
+import Graphics.XDot.Types hiding (name, h, Style, Color)
+import Graphics.XDot.Parser
 
 fontName :: B.Text
 --fontName = "Times Roman"
@@ -112,7 +112,6 @@ removeOld keys (Just x)
   | otherwise     = Nothing
 removeOld _ x = x
 
-{-
 -- | Take the objects to be visualized and run them through @dot@ and extract
 --   the drawing operations that have to be exectued to show the graph of the
 --   heap map.
@@ -127,9 +126,7 @@ xDotParse hidden = do
   xDot <- graphvizWithHandle graphvizCommand (defaultVis $ convertGraph hg) (XDot Nothing) hGetDot
 
   return (getOperations xDot, getBoxes (HeapGraph hg''), getDimensions xDot, getSize xDot)
-  -}
 
-xDotParse = undefined
 
 getBoxes :: HeapGraph a -> [Box]
 getBoxes (HeapGraph hg) = map (\(HeapGraphEntry b _ _ _) -> b) $ M.elems hg
