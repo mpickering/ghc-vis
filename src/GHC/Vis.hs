@@ -236,12 +236,10 @@ setupGUI window body canvas legendCanvas = do
             (oldPosX, oldPosY) = position state
         modifyIORef visState (\s -> s {position = (oldPosX + deltaX, oldPosY + deltaY)})
       else
-        traceShow ("runcorrect", ())
         runCorrect move >>= \f -> f canvas
 
       return True
   on UI.keydown body $ \button -> liftIO $ do
-    traceShowM ("keydown", button)
     state <- readIORef visState
     when (button `elem` [33]) $ do
       let newZoomRatio = zoomRatio state * zoomIncrement
