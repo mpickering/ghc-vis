@@ -83,6 +83,8 @@ import qualified GHC.Vis.Types as T
 import GHC.Vis.View.Common
 import qualified GHC.Vis.View.List as List
 
+import Web.KeyCode
+
 #ifdef GRAPH_VIEW
 import Data.GraphViz.Commands
 import qualified GHC.Vis.View.Graph as Graph
@@ -241,17 +243,45 @@ setupGUI window body canvas legendCanvas = do
       return True
   on UI.keydown body $ \button -> liftIO $ do
     state <- readIORef visState
-    when (button `elem` [33]) $ do
+    let key = keyCodeLookup button
+    when (key `elem` [PageUp]) $ do
       let newZoomRatio = zoomRatio state * zoomIncrement
           (oldX, oldY) = position state
           newPos = (oldX*zoomIncrement, oldY*zoomIncrement)
       modifyIORef visState (\s -> s {zoomRatio = newZoomRatio, position = newPos})
 
-    when (button `elem` [34]) $ do
+    when (key `elem` [PageDown]) $ do
       let newZoomRatio = zoomRatio state / zoomIncrement
           (oldX, oldY) = position state
           newPos = (oldX/zoomIncrement, oldY/zoomIncrement)
       modifyIORef visState (\s -> s {zoomRatio = newZoomRatio, position = newPos})
+
+    when (key `elem` [Digit0]) $
+      modifyIORef visState (\s -> s {zoomRatio = 1, position = (0, 0)})
+
+    when (key `elem` [ArrowLeft]) $
+      modifyIORef visState (\s ->
+        let (x,y) = position s
+            newX  = x + positionIncrement
+        in s {position = (newX, y)})
+
+    when (key `elem` [ArrowRight]) $
+      modifyIORef visState (\s ->
+        let (x,y) = position s
+            newX  = x - positionIncrement
+        in s {position = (newX, y)})
+
+    when (key `elem` [ArrowUp]) $
+      modifyIORef visState (\s ->
+        let (x,y) = position s
+            newY  = y + positionIncrement
+        in s {position = (x, newY)})
+
+    when (key `elem` [ArrowDown]) $
+      modifyIORef visState (\s ->
+        let (x,y) = position s
+            newY  = y - positionIncrement
+        in s {position = (x, newY)})
 
     runUI window (runCorrect redraw >>= \f -> f canvas)
   on UI.click canvas $ \button -> do

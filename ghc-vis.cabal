@@ -44,7 +44,8 @@ Library
                  transformers >= 0.3,
                  containers >= 0.4,
                  ghc-heap-graph,
-                 threepenny-gui
+                 threepenny-gui,
+                 keycode
   Hs-source-dirs: src/
   Ghc-options: -Wall -fno-warn-unused-do-bind
 

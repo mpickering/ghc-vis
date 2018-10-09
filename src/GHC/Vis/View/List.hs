@@ -125,11 +125,12 @@ redraw canvas = do
   s <- liftIO $ readIORef state
   let rw2 = 1000
       rh2 = 1000
-
+  save canvas
   canvas # clearCanvas
   setSourceRGB 255 255 255 canvas
   (size, boundingBoxes) <- draw canvas s rw2 rh2
   liftIO $ modifyIORef state (\s' -> s' {totalSize = size, bounds = boundingBoxes})
+  restore canvas
 
 
 draw :: Canvas -> State -> Int -> Int -> UI (Rectangle, [(String, Rectangle)])
@@ -156,19 +157,17 @@ draw canvas s rw2 rh2 = do
 
       (sx,sy) = (zoomRatio vS * min (rw / sw) (rh / sh), sx)
       (ox2,oy2) = position vS
-      (ox,oy) = (ox2 - (zoomRatio vS - 1) , oy2 - (zoomRatio vS - 1))
+      (ox,oy) = (ox2 * (zoomRatio vS - 1), oy2 * (zoomRatio vS - 1))
 
   traceShowM (ox, oy, ox2, oy2, zoomRatio vS)
-  let (ox, oy) = (0,0)
-  translate ox oy canvas
+--  let (ox, oy) = (0,0)
 
-  save canvas
+  translate ox oy canvas
   unless (rw2 == 0 || rh2 == 0) $
     scale sx sy canvas
 
   let rpos = scanl (\a b -> a + b + 30) 30 pos
   result <- mapM (drawEntry canvas s maxNameWidth 0) (zip3 objs rpos names)
-  restore canvas
   return ((0, 0, sw, sh), map (\(o, (x,y,w,h)) -> (o, (x*sx+ox,y*sy+oy,w*sx,h*sy))) $ concat result)
 
 -- | Handle a mouse click. If an object was clicked an 'UpdateSignal' is sent
