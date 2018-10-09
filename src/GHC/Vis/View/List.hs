@@ -156,8 +156,10 @@ draw canvas s rw2 rh2 = do
 
       (sx,sy) = (zoomRatio vS * min (rw / sw) (rh / sh), sx)
       (ox2,oy2) = position vS
-      (ox,oy) = (ox2 - (zoomRatio vS - 1) * rw / 2, oy2 - (zoomRatio vS - 1) * rh / 2)
+      (ox,oy) = (ox2 - (zoomRatio vS - 1) , oy2 - (zoomRatio vS - 1))
 
+  traceShowM (ox, oy, ox2, oy2, zoomRatio vS)
+  let (ox, oy) = (0,0)
   translate ox oy canvas
 
   save canvas
