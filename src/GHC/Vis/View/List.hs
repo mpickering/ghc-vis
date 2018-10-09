@@ -265,7 +265,7 @@ drawBox c s (x, rs) o@(Named name content) = do
         ( x
         , -fa
         , wc
-        , hc + hn + 10
+        , hc + hn + 10 + padding
         )
 
 
@@ -275,13 +275,14 @@ drawBox c s (x, rs) o@(Named name content) = do
 
   fillAndSurround c
 
-  let mid = uy + uh/2
+  let mid = uy + (uh - 15)
 
   moveTo (ux, mid) c
   lineTo (ux + uw, mid) c
   stroke c
 
   save c
+  translate 0 (padding/2) c
   (_, bb) <- foldM (drawBox c s) (x + padding , []) content
   restore c
 
