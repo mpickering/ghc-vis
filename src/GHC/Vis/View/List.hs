@@ -44,11 +44,7 @@ import Numeric (showHex)
 
 import Debug.Trace
 
-data PangoRectangle = PangoRectangle Double Double Double Double
-type PangoLayout = ()
-type FontMetrics = ()
-showLayout = undefined
-layoutGetExtents = undefined
+
 setSourceRGB :: Double -> Double -> Double -> Canvas -> UI ()
 setSourceRGB r g b u =
   u # set' fillStyle (solidColor (RGB (round r) (round g) (round b)))
@@ -79,8 +75,6 @@ type RGB = (Double, Double, Double)
 state :: IORef State
 state = unsafePerformIO $ newIORef $ State [] [] Nothing (0, 0, 1, 1) (0,0)
 
-layout' :: IORef (Maybe PangoLayout)
-layout' = unsafePerformIO $ newIORef Nothing
 
 fontName :: String
 fontName = "Sans"
@@ -380,7 +374,15 @@ simpleWidth canvas x pad = do
   (pad +) <$> measureText canvas x
 
 measureText :: Canvas -> String -> UI Double
-measureText c s = callFunction $ ffi "%1.getContext('2d').measureText(%2).width" c s
+measureText c s =  do
+  -- 6 is the width of the monospaced font at 10px
+  return (fromIntegral (length s * 6))
+
+-- You have to be careful using this function as it causes synchronisation
+-- and blocking.
+charWidth :: Canvas -> String -> UI Double
+charWidth c s =
+  callFunction $ ffi "%1.getContext('2d').measureText(%2).width" c s
 
 save :: Canvas -> UI ()
 save c = runFunction $ ffi "%1.getContext('2d').save();" c

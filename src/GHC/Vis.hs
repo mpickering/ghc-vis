@@ -213,6 +213,7 @@ setup window = do
               # set UI.height canvasSize
               # set UI.width  canvasSize
               # set style [("border", "solid black 1px"), ("background", "#eee")]
+              # set UI.textFont "10px monospace"
 
 --  widgetModifyBg canvas StateNormal backgroundColor
   dummy <- UI.canvas
