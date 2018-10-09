@@ -325,10 +325,8 @@ drawFunctionLink (x, rs) c s o target color1 color2 = do
   return (x + wc, (target, (ux, uy, uw, uh)) : rs)
 
 setColor ::State -> String -> RGB -> RGB -> Canvas -> UI ()
-setColor s name (r,g,b) (r',g',b') = case hover s of
-  Just t -> if t == name then setSourceRGB (r' * 255) (g' * 255) (b' * 255)
-                         else setSourceRGB (r * 255)  (g * 255)  (b * 255)
-  _ -> setSourceRGB (r * 255) (g * 255) (b * 255)
+setColor s name (r,g,b) (r',g',b') =
+  setSourceRGB (r * 255) (g * 255) (b * 255)
 
 fillAndSurround :: Canvas -> UI ()
 fillAndSurround c = do
