@@ -7,17 +7,12 @@
 
  -}
 module GHC.Vis.View.Graph (
-  export,
   redraw,
   click,
   move,
   updateObjects
   )
   where
-
-#if __GLASGOW_HASKELL__ < 706
-import Prelude hiding (catch)
-#endif
 
 import qualified Graphics.UI.Threepenny as UI
 import Graphics.UI.Threepenny.Core
@@ -40,7 +35,6 @@ import GHC.Heap.Graph
 import Graphics.XDot.Viewer
 import Graphics.XDot.Types hiding (size, w, h)
 
-import Paths_ghc_vis as My
 
 hoverIconWidth :: Double
 hoverIconWidth = 35
@@ -68,26 +62,11 @@ data State = State
 state :: IORef State
 state = unsafePerformIO $ newIORef $ State [] [] (0, 0, 1, 1) [] [] None Nothing
 
-type SVG = ()
-svgNewFromFile :: _ -> IO ()
-svgNewFromFile = undefined
-
-iconEvaluateSVG :: SVG
-iconEvaluateSVG = unsafePerformIO $ My.getDataFileName "data/icon_evaluate.svg" >>= svgNewFromFile
-iconCollapseSVG :: SVG
-iconCollapseSVG = unsafePerformIO $ My.getDataFileName "data/icon_collapse.svg" >>= svgNewFromFile
-hoverEvaluateSVG :: SVG
-hoverEvaluateSVG = unsafePerformIO $ My.getDataFileName "data/hover_evaluate.svg" >>= svgNewFromFile
-hoverCollapseSVG :: SVG
-hoverCollapseSVG = unsafePerformIO $ My.getDataFileName "data/hover_collapse.svg" >>= svgNewFromFile
-
 -- | Draw visualization to screen, called on every update or when it's
 --   requested from outside the program.
 redraw :: UI.Canvas -> Render ()
 redraw canvas = do
   s <- liftIO $ readIORef state
-  --rw2 <- liftIO $ Gtk.widgetGetAllocatedWidth canvas
-  --rh2 <- liftIO $ Gtk.widgetGetAllocatedHeight canvas
   let (rw2, rh2) = (1000,1000)
 
   save canvas
@@ -95,10 +74,6 @@ redraw canvas = do
   (bbs, hibbs) <- draw canvas s rw2 rh2
   restore canvas
   liftIO $ modifyIORef state (\s' -> s' {bounds = bbs, hoverIconBounds = hibbs})
-
--- | Export the visualization to an SVG file
-export :: DrawFunction -> String -> IO ()
-export drawFn file = undefined
 
 draw :: UI.Canvas -> State -> Int -> Int -> Render ([(Object Int, Rectangle)], [(Object Int, [(Icon, Rectangle)])])
 draw c s rw2 rh2 = do
@@ -111,7 +86,7 @@ draw c s rw2 rh2 = do
         rh = 0.97 * fromIntegral rh2
 
         ops = operations s
-        size@(_,_,sw,sh) = totalSize s
+        bsize@(_,_,sw,sh) = totalSize s
 
     -- Proportional scaling
         (sx,sy) = (min 1000 $ zoomRatio vS * minimum [2, rw / sw, rh / sh], sx)
@@ -122,8 +97,9 @@ draw c s rw2 rh2 = do
     translate ox oy c
     scale sx sy c
 
-    result <- drawAll c (hover s) size ops
+    result <- drawAll c (hover s) bsize ops
 
+{-
     case hover s of
       Node n -> do
         let Just (x,y,w,_h) = lookup (Node n) result
@@ -131,6 +107,7 @@ draw c s rw2 rh2 = do
         translate (x + w + hoverIconSpace) y c
         drawHoverMenu c $ iconHover s
       _      -> return True
+      -}
 
     let trafo (o, (x,y,w,h)) = (o,
           ( x * sx + ox -- Transformations to correct scaling and offset
@@ -145,20 +122,6 @@ draw c s rw2 rh2 = do
           ])
 
     return (map trafo result, map toHoverIconBounds result)
-
-svgRender = undefined
-
-drawHoverMenu :: UI.Canvas -> Maybe (t, Icon) -> Render Bool
-drawHoverMenu c x = do
-  svgRender $ case x of
-    Just (_, EvaluateIcon) -> hoverEvaluateSVG
-    _                      -> iconEvaluateSVG
-
-  translate 0 hoverIconHeight  c
-
-  svgRender $ case x of
-    Just (_, CollapseIcon) -> hoverCollapseSVG
-    _                      -> iconCollapseSVG
 
 -- | Handle a mouse click. If an object was clicked an 'UpdateSignal' is sent
 --   that causes the object to be evaluated and the screen to be updated.
@@ -220,10 +183,10 @@ hide b = modifyMVar_ visHidden (\hs -> return $ b : hs)
 -- | Handle a mouse move. Causes an 'UpdateSignal' if the mouse is hovering a
 --   different object now, so the object gets highlighted and the screen
 --   updated.
-move :: UI.Canvas -> IO ()
+move :: UI.Canvas -> UI ()
 move canvas = do
-  vs <- readIORef visState
-  oldS <- readIORef state
+  vs <- liftIO $ readIORef visState
+  oldS <- liftIO $ readIORef state
   let oldHover = hover oldS
 
       (mx, my) = mousePos vs
@@ -253,18 +216,18 @@ move canvas = do
   case iconHov of
     Just i -> do
       let ih = Just (oldHover, i)
-      modifyIORef state $ \s' -> s' {iconHover = ih}
-      --unless (iconHover oldS == ih) $ widgetQueueDraw canvas
+      liftIO $ modifyIORef state $ \s' -> s' {iconHover = ih}
+      unless (iconHover oldS == ih) $ redraw canvas
 
     Nothing -> do
       let h = validOne $ map check $ bounds oldS
-      modifyIORef state $ \s' -> s' {hover = h, iconHover = Nothing}
-      --unless (oldHover == h && iconHover oldS == Nothing) $ widgetQueueDraw canvas
+      liftIO $ modifyIORef state $ \s' -> s' {hover = h, iconHover = Nothing}
+      unless (oldHover == h && iconHover oldS == Nothing) $ redraw canvas
 
 -- | Something might have changed on the heap, update the view.
 updateObjects :: [NamedBox] -> IO ()
 updateObjects _boxes = do
   hidden <- readMVar visHidden
-  (ops, bs', _ , size) <- xDotParse $ hidden
+  (ops, bs', _ , dsize) <- xDotParse $ hidden
 
-  modifyIORef state (\s -> s {operations = ops, boxes = bs', totalSize = size, hover = None})
+  modifyIORef state (\s -> s {operations = ops, boxes = bs', totalSize = dsize, hover = None})

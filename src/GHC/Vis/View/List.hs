@@ -13,25 +13,15 @@ module GHC.Vis.View.List (
   updateObjects
   )
   where
-{-
-import Graphics.UI.Gtk (PangoRectangle(..), layoutGetExtents, showLayout,
-  PangoLayout, WidgetClass,
-  widgetQueueDraw, ascent, layoutSetFontDescription,
-  FontMetrics(..), layoutCopy, layoutSetText, layoutGetContext,
-  fontDescriptionFromString, fontDescriptionSetSize, contextGetLanguage,
-  contextGetMetrics, createLayout)
-import qualified Graphics.UI.Gtk as Gtk
-import Graphics.Rendering.Cairo hiding (width, height, x, y)
--}
 
-import Graphics.UI.Threepenny hiding (map, width, hover, height, click)
+import Graphics.UI.Threepenny.Core
 import Graphics.UI.Threepenny.Canvas.Utils
+import Graphics.UI.Threepenny.Canvas
 
 import Control.Concurrent
 import Control.Monad
 
 import Data.IORef
-import Data.List
 import System.IO.Unsafe
 
 import GHC.Vis.Types hiding (State, View(..))
@@ -39,9 +29,7 @@ import GHC.Vis.View.Common
 
 import GHC.Heap.Graph (Box)
 
-import Data.Char (toUpper)
 import Data.List(intercalate)
-import Numeric (showHex)
 
 import Debug.Trace
 
@@ -49,11 +37,6 @@ import Debug.Trace
 setSourceRGB :: Double -> Double -> Double -> Canvas -> UI ()
 setSourceRGB r g b u =
   u # set' fillStyle (solidColor (RGB (round r) (round g) (round b)))
-
-setSourceRGBA r g b a c =
-  c # set' fillStyle (solidColor (RGBA (round r) (round g) (round b) a))
-
-
 
 type Rectangle = (Double, Double, Double, Double)
 
@@ -69,16 +52,6 @@ type RGB = (Double, Double, Double)
 
 state :: IORef State
 state = unsafePerformIO $ newIORef $ State [] [] Nothing (0, 0, 1, 1) (0,0)
-
-
-fontName :: String
-fontName = "Sans"
---fontName = "Times Roman"
---fontName = "DejaVu Sans"
---fontName = "Lucida Grande"
-
-fontSize :: Double
-fontSize = 15
 
 colorName :: RGB
 colorName = (0.5,1,0.5)
@@ -177,20 +150,23 @@ click = do
 -- | Handle a mouse move. Causes an 'UpdateSignal' if the mouse is hovering a
 --   different object now, so the object gets highlighted and the screen
 --   updated.
-move :: Canvas -> IO ()
-move canvas = do
-  vS <- readIORef visState
-  oldS <- readIORef state
-  let oldHover = hover oldS
-  modifyIORef state $ \s' -> (
-    let (mx, my) = mousePos vS
-        check (o, o2@(x,y,w,h)) =
-          if x <= mx && mx <= x + w &&
-             y <= my && my <= y + h
-          then Just o else Nothing
-    in
-      s' {hover = msum $ map (check) (bounds s')}
-    )
+move :: Canvas -> UI ()
+move c = do
+  r <- liftIO $ do
+    vS <- readIORef visState
+    oldHover <- hover <$> readIORef state
+    modifyIORef state $ \s' -> (
+      let (mx, my) = mousePos vS
+          check (o, (x,y,w,h)) =
+            if x <= mx && mx <= x + w &&
+               y <= my && my <= y + h
+            then Just o else Nothing
+      in  s' { hover = msum $ map check (bounds s') }
+      )
+    newHover <- hover <$> readIORef state
+    return (oldHover == newHover)
+  return ()
+
 
 -- | Something might have changed on the heap, update the view.
 updateObjects :: [NamedBox] -> IO ()
@@ -241,13 +217,12 @@ drawBox c s acc o@(Function target) =
 drawBox c s acc o@(Link target) =
   drawFunctionLink acc c s o target colorLink colorLinkHighlighted
 
-drawBox c s (x, rs) o@(Named name content) = do
+drawBox c s (x, rs) o@(Named box_name box_content) = do
 
-  hc <- height content
+  hc <- height box_content
   wc <- width c o
 
   let fa = 13 + padding
-      fh = 5
       hn = 10
 
   let (ux, uy, uw, uh) =
@@ -259,7 +234,7 @@ drawBox c s (x, rs) o@(Named name content) = do
 
 
   --setLineCap LineCapRound
-  c # setColor s name colorName colorNameHighlighted
+  c # setColor s box_name colorName colorNameHighlighted
   roundedRect c ux uy uw uh
 
   fillAndSurround c
@@ -272,22 +247,21 @@ drawBox c s (x, rs) o@(Named name content) = do
 
   save c
   translate 0 (padding/2) c
-  (_, bb) <- foldM (drawBox c s) (x + padding , []) content
+  (_, bb) <- foldM (drawBox c s) (x + padding , []) box_content
   restore c
 
-  --moveTo ((x + uw/2 - xa/2), (hc + 7.5 - padding - fa)) c
-  xa <- measureText c name
-  fillText name (x + uw/2 - xa/2 + padding / 2, mid + hn) c
+  xa <- measureText c box_name
+  fillText box_name (x + uw/2 - xa/2 + padding / 2, mid + hn) c
   moveTo ((x + wc), 0) c
 
-  return $ (x + wc,  bb ++ [(name, (ux, uy, uw, uh))] ++ rs)
+  return $ (x + wc,  bb ++ [(box_name, (ux, uy, uw, uh))] ++ rs)
 
 
 
 drawFunctionLink :: (Double, [(String, Rectangle)])
                  -> Canvas -> State -> VisObject
                  -> String -> RGB -> RGB -> UI (Double, [(String, Rectangle)])
-drawFunctionLink (x, rs) c s o target color1 color2 = do
+drawFunctionLink (x, rs) c s o target_text color1 color2 = do
   let fa = 13 + padding
       fh = 10
 
@@ -302,21 +276,23 @@ drawFunctionLink (x, rs) c s o target color1 color2 = do
         )
 
   --setLineCap LineCapRound
-  c # setColor s target color1 color2
+  c # setColor s target_text color1 color2
   roundedRect c ux uy uw uh
 
   fillAndSurround c
 
   c # setSourceRGB 0 0 0
-  fillText target (x + padding , - (5 + padding/2) ) c
+  fillText target_text (x + padding , - (5 + padding/2) ) c
 --  showLayout layout
   moveTo ((x + wc), 0) c
 
-  return (x + wc, (target, (ux, uy, uw, uh)) : rs)
+  return (x + wc, (target_text, (ux, uy, uw, uh)) : rs)
 
-setColor ::State -> String -> RGB -> RGB -> Canvas -> UI ()
-setColor s name (r,g,b) (r',g',b') =
-  setSourceRGB (r * 255) (g * 255) (b * 255)
+
+
+setColor :: State -> String -> RGB -> RGB -> Canvas -> UI ()
+setColor _ _ (r,g,b) _ --(r',g',b') =
+  = setSourceRGB (r * 255) (g * 255) (b * 255)
 
 fillAndSurround :: Canvas -> UI ()
 fillAndSurround c = do
@@ -365,6 +341,6 @@ width c (Thunk x) = simpleWidth c x $ 2 * padding
 width c (Function x) = simpleWidth c x $ 2 * padding
 
 simpleWidth :: Canvas -> String -> Double -> UI Double
-simpleWidth canvas x pad = do
-  (pad +) <$> measureText canvas x
+simpleWidth c x pad = do
+  (pad +) <$> measureText c x
 

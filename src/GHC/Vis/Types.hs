@@ -49,18 +49,13 @@ data Signal = NewSignal Box String -- ^ Add a new Box to be visualized
             | RestoreSignal        -- ^ Reset all hidden boxes
             | SwitchSignal         -- ^ Switch to alternative view
             | HistorySignal (Int -> Int) -- ^ Change position in history
---            | ExportSignal DrawFunction String -- ^ Export the view to a file
-
-instance Show Signal where
- show UpdateSignal = "Update"
 
 -- | All functions a view has to provide
 data View = View
   { redraw        :: Canvas -> Render ()
   , click         :: IO ()
-  , move          :: Canvas -> IO ()
+  , move          :: Canvas -> UI ()
   , updateObjects :: [NamedBox] -> IO ()
-  , exportView    :: DrawFunction -> String -> IO ()
   }
 
 -- | Visualization views

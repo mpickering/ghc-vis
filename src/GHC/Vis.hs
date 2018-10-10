@@ -58,17 +58,9 @@ import Prelude
 import qualified Graphics.UI.Threepenny as UI
 import Graphics.UI.Threepenny.Core
 
-import System.IO
 import Control.Concurrent
 import Control.Monad
-import Control.Monad.IO.Class
-import Control.Monad.Trans.Class
-
-import Control.Exception hiding (evaluate)
-
-import Data.Char
 import Data.IORef
-import Data.Version
 
 import Data.Text ()
 import qualified Data.IntMap as M
@@ -91,32 +83,16 @@ import Data.GraphViz.Commands
 import qualified GHC.Vis.View.Graph as Graph
 #endif
 
-import Debug.Trace
-
-
-
---import Graphics.Rendering.Cairo hiding (restore, x, y, width, height)
-
-
-
-data Surface = Surface
-
 views :: [View]
 views =
-  View List.redraw List.click List.move List.updateObjects undefined :
+  View List.redraw List.click List.move List.updateObjects :
 #ifdef GRAPH_VIEW
-  View Graph.redraw Graph.click Graph.move Graph.updateObjects Graph.export :
+  View Graph.redraw Graph.click Graph.move Graph.updateObjects :
 #endif
   []
 
 title :: String
 title = "ghc-vis"
-
-backgroundColor :: UI.Color
-backgroundColor = UI.RGB 0xffff 0xffff 0xffff
-
-defaultSize :: (Int, Int)
-defaultSize = (1600, 1600)
 
 zoomIncrement :: Double
 zoomIncrement = 2
@@ -179,22 +155,27 @@ setDepth newDepth
   | newDepth > 0 = modifyIORef visState (\s -> s {heapDepth = newDepth})
   | otherwise    = error "Heap depth has to be positive"
 
-zoom :: UI.Canvas -> (Double -> Double) -> IO ()
+zoom :: UI.Canvas -> (Double -> Double) -> UI ()
 zoom canvas f = do
-  state <- readIORef visState
+  liftIO $ do
+      state <- readIORef visState
 
-  let newZoomRatio = f $ zoomRatio state
-  newPos <- undefined --zoomImage canvas state newZoomRatio (mousePos state)
-  modifyIORef visState (\s -> s {zoomRatio = newZoomRatio, position = newPos})
+      let newZoomRatio = f $ zoomRatio state
+      newPos <- undefined --zoomImage canvas state newZoomRatio (mousePos state)
+      modifyIORef visState (\s -> s {zoomRatio = newZoomRatio, position = newPos})
 
-  --widgetQueueDraw canvas
+  rd canvas
 
-movePos :: UI.Canvas -> (T.Point -> T.Point) -> IO ()
+rd :: UI.Canvas -> UI ()
+rd canvas = do
+  runCorrect redraw >>= \f -> f canvas
+
+movePos :: UI.Canvas -> (T.Point -> T.Point) -> UI ()
 movePos canvas f = do
-  modifyIORef visState (\s ->
+  liftIO $ modifyIORef visState (\s ->
     let newPosition = f $ position s
     in s {position = newPosition})
-  --widgetQueueDraw canvas
+  rd canvas
 
 
 put :: Signal -> IO ()
@@ -204,11 +185,12 @@ mVisMainThread :: IO ()
 mVisMainThread = do
   startGUI (defaultConfig { jsPort = Just 8080 }) setup
 
+canvasSize :: Int
 canvasSize = 1000
 
 setup :: Window -> UI ()
 setup window = do
-  return window # set UI.title "Canvas - Examples"
+  return window # set UI.title GHC.Vis.title
 
   canvas <- UI.canvas
               # set UI.height canvasSize
@@ -216,34 +198,30 @@ setup window = do
               # set style [("border", "solid black 1px"), ("background", "#eee")]
               # set UI.textFont "10px monospace"
 
---  widgetModifyBg canvas StateNormal backgroundColor
-  dummy <- UI.canvas
-
   body <- getBody window #+
-    [ column [element canvas, element dummy] ]
+    [ column [element canvas] ]
 
   return ()
 
-  setupGUI window body canvas dummy
+  setupGUI window body canvas
 
-setupGUI :: Window -> _ -> _ -> _ -> UI ()
-setupGUI window body canvas legendCanvas = do
-  --widgetAddEvents canvas [PointerMotionMask]
+setupGUI :: Window -> Element -> UI.Canvas -> UI ()
+setupGUI window body canvas = do
   on UI.mousemove canvas $ \(fromIntegral -> x, fromIntegral -> y) -> do
-    liftIO $ do
-      state <- readIORef visState
-      modifyIORef visState (\s -> s {mousePos = (x, y)})
+    do
+      state <- liftIO $ readIORef visState
+      liftIO $ modifyIORef visState (\s -> s {mousePos = (x, y)})
       if dragging state
       then do
         let (oldX, oldY) = mousePos state
             (deltaX, deltaY) = (x - oldX, y - oldY)
             (oldPosX, oldPosY) = position state
-        modifyIORef visState (\s -> s {position = (oldPosX + deltaX, oldPosY + deltaY)})
+        liftIO $ modifyIORef visState (\s -> s {position = (oldPosX + deltaX, oldPosY + deltaY)})
       else
         runCorrect move >>= \f -> f canvas
-
       return True
-  on UI.keydown body $ \button -> liftIO $ do
+
+  on UI.keydown body $ \button -> (liftIO $ do
     state <- readIORef visState
     let key = keyCodeLookup button
     when (key `elem` [PageUp]) $ do
@@ -283,20 +261,10 @@ setupGUI window body canvas legendCanvas = do
       modifyIORef visState (\s ->
         let (x,y) = position s
             newY  = y - positionIncrement
-        in s {position = (x, newY)})
+        in s {position = (x, newY)})) >> rd canvas
 
-    runUI window (runCorrect redraw >>= \f -> f canvas)
-  on UI.click canvas $ \button -> do
+  on UI.click canvas $ \_ -> do
     liftIO (join (runCorrect click))
-  {-
-      when (button == RightButton && eClick == SingleClick) $
-        modifyIORef visState (\s -> s {dragging = True})
-
-      when (button == MiddleButton && eClick == SingleClick) $ do
-        modifyIORef visState (\s -> s {zoomRatio = 1, position = (0, 0)})
---        widgetQueueDraw canvas
---        -}
-
     return True
 {-
   on canvas buttonReleaseEvent $ do
@@ -426,20 +394,11 @@ setupGUI window body canvas legendCanvas = do
   widgetShowAll window
   -}
 
-  reactThread <- liftIO $ forkIO $ react window canvas legendCanvas
-  --onDestroy window mainQuit -- Causes :r problems with multiple windows
-  --on window destroyEvent $ lift $ quit reactThread >> return True
-
+  liftIO $ forkIO $ react window canvas
   return ()
-{-
-quit :: ThreadId -> IO ()
-quit reactThread = do
-  swapMVar visRunning False
-  killThread reactThread
-  -}
 
-react :: Window -> UI.Canvas -> UI.Canvas -> IO b
-react window canvas legendCanvas = do
+react :: Window -> UI.Canvas -> IO b
+react window canvas = do
   -- Timeout used to handle ghci reloads (:r)
   -- Reloads cause the visSignal to be reinitialized, but takeMVar is still
   -- waiting for the old one.  This solution is not perfect, but it works for
@@ -448,11 +407,11 @@ react window canvas legendCanvas = do
   case mbSignal of
     Nothing -> do
       running <- readMVar visRunning
-      if running then react window canvas legendCanvas else
+      if running then react window canvas else
         -- :r caused visRunning to be reset
         (do swapMVar visRunning True
             timeout signalTimeout (putMVar visSignal UpdateSignal)
-            react window canvas legendCanvas)
+            react window canvas )
     Just signal -> do
       doUpdate <- case signal of
         NewSignal x n  -> do
@@ -499,9 +458,7 @@ react window canvas legendCanvas = do
       runCorrect updateObjects >>= \f -> f boxes
       runUI window (runCorrect redraw >>= \f -> f canvas)
 
-      --postGUISync $ widgetQueueDraw canvas
-      --postGUISync $ widgetQueueDraw legendCanvas
-      react window canvas legendCanvas
+      react window canvas
 
 #ifdef GRAPH_VIEW
   where doSwitch = isGraphvizInstalled >>= \gvi -> if gvi
@@ -519,6 +476,7 @@ runCorrect f = do
   s <- liftIO $ readIORef visState
   return $ f $ views !! fromEnum (T.view s)
 
+{-
 zoomImage :: UI.Canvas -> State -> Double -> T.Point -> IO T.Point
 zoomImage _canvas s newZoomRatio _mousePos@(_x', _y') = do
   let (oldPosX, oldPosY) = position s
@@ -526,6 +484,4 @@ zoomImage _canvas s newZoomRatio _mousePos@(_x', _y') = do
       newPos = (oldPosX * newZoom, oldPosY * newZoom)
 
   return newPos
-
-wheel :: Element -> Event _
-wheel =  domEvent "wheel"
+  -}
