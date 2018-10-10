@@ -15,7 +15,7 @@ module GHC.Vis.View.List (
   where
 
 import Graphics.UI.Threepenny.Core
-import Graphics.UI.Threepenny.Canvas.Utils
+import Graphics.UI.Threepenny.Canvas.Utils hiding (measureText)
 import Graphics.UI.Threepenny.Canvas
 
 import Control.Concurrent
@@ -165,7 +165,7 @@ move c = do
       )
     newHover <- hover <$> readIORef state
     return (oldHover == newHover)
-  return ()
+  unless r (redraw c)
 
 
 -- | Something might have changed on the heap, update the view.
@@ -291,8 +291,11 @@ drawFunctionLink (x, rs) c s o target_text color1 color2 = do
 
 
 setColor :: State -> String -> RGB -> RGB -> Canvas -> UI ()
-setColor _ _ (r,g,b) _ --(r',g',b') =
-  = setSourceRGB (r * 255) (g * 255) (b * 255)
+setColor s n (r,g,b) (r', g', b')  =
+  case hover s of
+    Just t -> if t == n then setSourceRGB (r' * 255) (g' * 255) (b' * 255)
+                        else setSourceRGB (r * 255) (g * 255) (b * 255)
+    Nothing -> setSourceRGB (r * 255) (g * 255) (b * 255)
 
 fillAndSurround :: Canvas -> UI ()
 fillAndSurround c = do
@@ -343,4 +346,7 @@ width c (Function x) = simpleWidth c x $ 2 * padding
 simpleWidth :: Canvas -> String -> Double -> UI Double
 simpleWidth c x pad = do
   (pad +) <$> measureText c x
+
+measureText :: Canvas -> String -> UI Double
+measureText _ x = return (fromIntegral (length x * 6))
 
